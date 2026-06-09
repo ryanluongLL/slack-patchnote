@@ -1,3 +1,4 @@
+from agent.tools import add_emoji_reaction_tool, get_recent_prs_tool, get_pr_diff_tool, get_pr_details_tool
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -57,12 +58,12 @@ Also use them when the user explicitly asks you to perform a Slack action.
 agent_tools_server = create_sdk_mcp_server(
     name="agent-tools",
     version="1.0.0",
-    tools=[add_emoji_reaction_tool],
+    tools=[add_emoji_reaction_tool, get_recent_prs_tool, get_pr_diff_tool, get_pr_details_tool],
 )
 
 SLACK_MCP_URL = "https://mcp.slack.com/mcp"
 
-AGENT_TOOLS = ["add_emoji_reaction"]
+AGENT_TOOLS = ["add_emoji_reaction", "get_recent_prs", "get_pr_diff", "get_pr_details"]
 
 
 async def run_agent(
