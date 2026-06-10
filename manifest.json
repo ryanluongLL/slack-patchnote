@@ -15,7 +15,15 @@
     "bot_user": {
       "display_name": "patchnote",
       "always_online": true
-    }
+    },
+    "slash_commands":[
+      {
+        "command": "/patchnote",
+        "description": "Generate release notes for a GitHub repo",
+        "usage_hint": "ship <owner/repo>",
+        "should_escape": false
+      }
+    ]
   },
   "oauth_config": {
     "redirect_urls": [
@@ -53,7 +61,8 @@
         "reactions:write",
         "reactions:read",
         "users:read",
-        "assistant:write"
+        "assistant:write",
+        "commands"
       ]
     }
   },
