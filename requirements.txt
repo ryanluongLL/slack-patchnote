@@ -7,3 +7,4 @@ python-dotenv==1.2.2
 
 pytest
 ruff==0.15.15
+anthropic>=0.40.0

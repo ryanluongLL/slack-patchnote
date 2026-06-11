@@ -100,6 +100,7 @@ async def run_agent(
         mcp_servers=mcp_servers,
         allowed_tools=allowed_tools,
         permission_mode="bypassPermissions",
+        model="claude-haiku-4-5",
     )
 
     if session_id:

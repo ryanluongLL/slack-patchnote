@@ -62,7 +62,9 @@
         "reactions:read",
         "users:read",
         "assistant:write",
-        "commands"
+        "commands",
+        "channels:read",
+        "channels:join"
       ]
     }
   },
