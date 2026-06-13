@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import os
-
+print("BOT TOKEN:", os.environ.get("SLACK_BOT_TOKEN"))
+print("APP TOKEN:", os.environ.get("SLACK_APP_TOKEN"))
 from dotenv import load_dotenv
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
