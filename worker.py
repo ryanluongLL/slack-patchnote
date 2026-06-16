@@ -29,17 +29,17 @@ async def process_batch(repo: str, jobs: list[dict]):
     """Process a batch of merged PRs for one repo and generate notes."""
     from listeners.commands.patchnote_command import (
         _fetch_pr_data,
-        _generate_for_audience,
         AUDIENCES,
         ENGINEERING_CHANNEL,
-        PRODUCT_CHANNEL,
-        SUPPORT_CHANNEL,
     )
-    from agent.generate import get_budget_status
+    from agent.generate import get_budget_status, generate_release_notes
+    from db.database import AsyncSessionLocal, init_db
+    from db.crud import create_release, create_release_note
+    from db.models import AudienceType
 
-    pr_list = ", ".join(
-        f"#{j['pr_number']} {j['pr_title']}" for j in jobs
-    )
+    await init_db()
+
+    pr_list = ", ".join(f"#{j['pr_number']} {j['pr_title']}" for j in jobs)
     logger.info(f"Processing batch for {repo}: {pr_list}")
 
     status = get_budget_status()
@@ -51,7 +51,6 @@ async def process_batch(repo: str, jobs: list[dict]):
         )
         return
 
-    # Fetch PR data directly, no agent loop
     raw_data = await _fetch_pr_data(
         repo=repo,
         user_id="worker",
@@ -62,8 +61,20 @@ async def process_batch(repo: str, jobs: list[dict]):
         logger.error(f"Failed to fetch PR data for {repo}: {raw_data}")
         return
 
-    # Post a trigger message so users know notes are coming
-    trigger_msg = await slack_client.chat_postMessage(
+    # Persist the release first
+    async with AsyncSessionLocal() as session:
+        release = await create_release(
+            session=session,
+            repo=repo,
+            pr_numbers=[j["pr_number"] for j in jobs],
+            pr_titles=[j["pr_title"] for j in jobs],
+            raw_data=raw_data,
+            triggered_by="webhook",
+        )
+        logger.info(f"Release {release.id} created for {repo}")
+
+    # Post trigger message
+    await slack_client.chat_postMessage(
         channel=ENGINEERING_CHANNEL,
         text=(
             f":gear: Auto-generating PatchNotes for *{repo}*\n"
@@ -71,19 +82,30 @@ async def process_batch(repo: str, jobs: list[dict]):
         ),
     )
 
-    # Generate notes for all three audiences sequentially
+    # Generate and persist notes for all three audiences
     for audience, channel, system_prompt, emoji in AUDIENCES:
-        await _generate_for_audience(
+        response_text = await generate_release_notes(
             raw_data=raw_data,
-            audience=audience,
-            channel=channel,
-            system_prompt=system_prompt,
-            emoji=emoji,
+            audience_prompt=system_prompt,
             repo=repo,
-            user_id="worker",
-            client=slack_client,
-            logger=logger,
+            audience=audience,
         )
+
+        msg = await slack_client.chat_postMessage(
+            channel=channel,
+            text=f"{emoji} *PatchNote for {repo}*\n\n{response_text}",
+        )
+
+        async with AsyncSessionLocal() as session:
+            await create_release_note(
+                session=session,
+                release_id=release.id,
+                audience=AudienceType(audience),
+                content=response_text,
+                slack_channel_id=channel,
+                slack_message_ts=msg["ts"],
+            )
+            logger.info(f"Persisted {audience} note for release {release.id}")
 
     logger.info(f"Batch complete for {repo}")
 
