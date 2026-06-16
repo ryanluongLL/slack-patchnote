@@ -1,0 +1,71 @@
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import String, Text, Integer, DateTime, ForeignKey, Enum
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+import enum
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class AudienceType(str, enum.Enum):
+    engineering = "engineering"
+    product = "product"
+    support = "support"
+
+
+class ApprovalStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class Release(Base):
+    """One release per repo per batch window."""
+    __tablename__ = "releases"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    repo: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    pr_numbers: Mapped[str] = mapped_column(Text, nullable=False)
+    pr_titles: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_data: Mapped[str] = mapped_column(Text, nullable=False)
+    triggered_by: Mapped[str] = mapped_column(String(50), default="webhook")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    notes: Mapped[list["ReleaseNote"]] = relationship(
+        "ReleaseNote", back_populates="release", cascade="all, delete-orphan"
+    )
+
+
+class ReleaseNote(Base):
+    """One note per audience per release."""
+    __tablename__ = "release_notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    release_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("releases.id"), nullable=False, index=True
+    )
+    audience: Mapped[AudienceType] = mapped_column(
+        Enum(AudienceType), nullable=False
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[ApprovalStatus] = mapped_column(
+        Enum(ApprovalStatus), default=ApprovalStatus.pending
+    )
+    slack_channel_id: Mapped[str] = mapped_column(String(50), nullable=True)
+    slack_message_ts: Mapped[str] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    release: Mapped["Release"] = relationship("Release", back_populates="notes")
