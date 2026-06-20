@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from db.models import Release, ReleaseNote, AudienceType, ApprovalStatus
-
+from db.models import Release, ReleaseNote, AudienceType, ApprovalStatus, PREmbedding
 
 async def create_release(
     session: AsyncSession,
@@ -91,3 +91,28 @@ async def update_note_status(
         await session.commit()
         await session.refresh(note)
     return note
+
+
+async def create_pr_embedding(
+    session: AsyncSession,
+    release_id: uuid.UUID,
+    repo: str,
+    pr_number: int,
+    pr_title: str,
+    summary_text: str,
+    embedding: list[float],
+) -> PREmbedding:
+    """Store a PR's embedding for later similarity search and clustering."""
+    pr_embedding = PREmbedding(
+        release_id=release_id,
+        repo=repo,
+        pr_number=pr_number,
+        pr_title=pr_title,
+        summary_text=summary_text,
+        embedding=embedding,
+    )
+    session.add(pr_embedding)
+    await session.commit()
+    await session.refresh(pr_embedding)
+    return pr_embedding
+

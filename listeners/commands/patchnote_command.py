@@ -91,28 +91,34 @@ async def handle_patchnote_command(
 #     raw_data, _ = await run_agent(gather_prompt, deps=deps)
 #     return raw_data
 
-async def _fetch_pr_data(repo: str, user_id: str, client: AsyncWebClient) -> str:
-    """Fetch PR data directly using GitHub tools, no agent loop needed."""
+async def _fetch_pr_data_structured(repo: str) -> tuple[list[dict], str]:
+    """Fetch PR data and return both structured per-PR records and a flattened
+    text blob for generation.
+
+    Returns:
+        A tuple of (pr_records, flattened_text) where pr_records is a list of
+        dicts with pr_number, pr_title, details_text, diff_text for embedding,
+        and flattened_text is the full blob used for generation prompts.
+    """
     from agent.tools.github_prs import get_recent_prs_tool, get_pr_details_tool, get_pr_diff_tool
+    import re
 
     results = []
+    pr_records = []
 
-    # Step 1: get recent PRs
     prs_result = await get_recent_prs_tool.handler({"repo": repo, "limit": 3})
     prs_text = prs_result["content"][0]["text"]
 
     if "No merged PRs" in prs_text or "GitHub API error" in prs_text:
-        return prs_text
-
+        return [], prs_text
+    
     results.append(f"=== MERGED PRs ===\n{prs_text}")
 
-    # Step 2: extract PR numbers from the text
-    import re
-    pr_numbers = re.findall(r"PR #(\d+):", prs_text)
+    #Extract PR numbers and titles together
+    pr_matches = re.findall(r"PR #(\d+): (.+)", prs_text)
 
-    # Step 3: fetch details and diff for each PR
-    for pr_num in pr_numbers:
-        pr_number = int(pr_num)
+    for pr_num_str, pr_title in pr_matches:
+        pr_number = int(pr_num_str)
 
         details_result = await get_pr_details_tool.handler({"repo": repo, "pr_number": pr_number})
         details_text = details_result["content"][0]["text"]
@@ -122,9 +128,22 @@ async def _fetch_pr_data(repo: str, user_id: str, client: AsyncWebClient) -> str
         diff_text = diff_result["content"][0]["text"]
         results.append(f"=== PR #{pr_number} DIFF ===\n{diff_text}")
 
-    return "\n\n".join(results)
+        pr_records.append({
+            "pr_number": pr_number,
+            "pr_title": pr_title.strip(),
+            "details_text": details_text,
+            "diff_text": diff_text,
+        })
 
+    flattened_text = "\n\n".join(results)
+    return pr_records, flattened_text
 
+async def _fetch_pr_data(repo: str, user_id: str, client: AsyncWebClient) -> str:
+    """Backwards-compatible wrapper that returns only the flattened text.
+    Kept for the slash command path which doesn't need structured records.
+    """
+    _, flattened_text = await _fetch_pr_data_structured(repo)
+    return flattened_text
 
 async def _generate_for_audience(
     raw_data: str,
