@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import String, Text, Integer, DateTime, ForeignKey, Enum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 import enum
 
 
@@ -69,3 +70,22 @@ class ReleaseNote(Base):
     )
 
     release: Mapped["Release"] = relationship("Release", back_populates="notes")
+class PREmbedding(Base):
+    """Vector embedding for a single PR, used for similarity and clustering."""
+    __tablename__ = "pr_embeddings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    release_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("releases.id"), nullable=False, index=True
+    )
+    repo: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    pr_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    pr_title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )

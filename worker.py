@@ -28,13 +28,14 @@ MAX_RETRIES = int(os.environ.get("PATCHNOTE_MAX_RETRIES", "3"))
 async def process_batch(repo: str, jobs: list[dict]):
     """Process a batch of merged PRs for one repo and generate notes."""
     from listeners.commands.patchnote_command import (
-        _fetch_pr_data,
+        _fetch_pr_data_structured,
         AUDIENCES,
         ENGINEERING_CHANNEL,
     )
     from agent.generate import get_budget_status, generate_release_notes
+    from agent.embeddings import build_pr_summary_text, embed_pr_summary
     from db.database import AsyncSessionLocal, init_db
-    from db.crud import create_release, create_release_note
+    from db.crud import create_release, create_release_note, create_pr_embedding
     from db.models import AudienceType
 
     await init_db()
@@ -51,11 +52,7 @@ async def process_batch(repo: str, jobs: list[dict]):
         )
         return
 
-    raw_data = await _fetch_pr_data(
-        repo=repo,
-        user_id="worker",
-        client=slack_client,
-    )
+    pr_records, raw_data = await _fetch_pr_data_structured(repo)
 
     if not raw_data or "GitHub API error" in raw_data:
         logger.error(f"Failed to fetch PR data for {repo}: {raw_data}")
@@ -72,6 +69,32 @@ async def process_batch(repo: str, jobs: list[dict]):
             triggered_by="webhook",
         )
         logger.info(f"Release {release.id} created for {repo}")
+
+    # Embed each PR individually for future similarity and clustering
+    for pr in pr_records:
+        try:
+            summary_text = build_pr_summary_text(
+                pr_number=pr["pr_number"],
+                pr_title=pr["pr_title"],
+                details_text=pr["details_text"],
+                diff_text=pr["diff_text"],
+            )
+            embedding = await embed_pr_summary(summary_text)
+
+            async with AsyncSessionLocal() as session:
+                await create_pr_embedding(
+                    session=session,
+                    release_id=release.id,
+                    repo=repo,
+                    pr_number=pr["pr_number"],
+                    pr_title=pr["pr_title"],
+                    summary_text=summary_text,
+                    embedding=embedding,
+                )
+            logger.info(f"Embedded PR #{pr['pr_number']} for release {release.id}")
+        except Exception as e:
+            logger.exception(f"Failed to embed PR #{pr['pr_number']}: {e}")
+            # Don't fail the whole batch if one embedding fails
 
     # Post trigger message
     await slack_client.chat_postMessage(
