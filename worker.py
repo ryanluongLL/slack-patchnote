@@ -71,6 +71,7 @@ async def process_batch(repo: str, jobs: list[dict]):
         logger.info(f"Release {release.id} created for {repo}")
 
     # Embed each PR individually for future similarity and clustering
+    embedding_list = []
     for pr in pr_records:
         try:
             summary_text = build_pr_summary_text(
@@ -80,6 +81,7 @@ async def process_batch(repo: str, jobs: list[dict]):
                 diff_text=pr["diff_text"],
             )
             embedding = await embed_pr_summary(summary_text)
+            embedding_list.append(embedding)
 
             async with AsyncSessionLocal() as session:
                 await create_pr_embedding(
@@ -94,9 +96,28 @@ async def process_batch(repo: str, jobs: list[dict]):
             logger.info(f"Embedded PR #{pr['pr_number']} for release {release.id}")
         except Exception as e:
             logger.exception(f"Failed to embed PR #{pr['pr_number']}: {e}")
+            embedding_list.append(None)
             # Don't fail the whole batch if one embedding fails
+        
 
-    # Post trigger message
+    #Cluster related PRs and build a smarter generation input
+    generation_text = raw_data #fallback to flatterned text
+    valid_pairs = [(pr, emb) for pr, emb in zip(pr_records, embedding_list) if emb is not None]
+
+
+    if len(valid_pairs) >= 2:
+        try:
+            from agent.clustering import cluster_prs, format_clusters_for_prompt
+
+            valid_records = [p for p, _ in valid_pairs]
+            valid_embeddings = [e for _, e in valid_pairs]
+
+            clusters = await cluster_prs(valid_records, valid_embeddings)
+            generation_text = format_clusters_for_prompt(valid_records, clusters)
+            logger.info(f"Clustered {len(pr_records)} PRs into {len(clusters)} groups")
+        except Exception as e:
+            logger.exception(f"Clustering failed, falling back to flat text:")
+    #Post trigger message
     await slack_client.chat_postMessage(
         channel=ENGINEERING_CHANNEL,
         text=(
@@ -105,13 +126,13 @@ async def process_batch(repo: str, jobs: list[dict]):
         ),
     )
 
-    # Generate and persist notes for all three audiences
+    #Generated and persist notes for all three audiences
     for audience, channel, system_prompt, emoji in AUDIENCES:
         response_text = await generate_release_notes(
-            raw_data=raw_data,
+            raw_data=generation_text,
             audience_prompt=system_prompt,
             repo=repo,
-            audience=audience,
+            audience=audience
         )
 
         msg = await slack_client.chat_postMessage(
@@ -129,7 +150,6 @@ async def process_batch(repo: str, jobs: list[dict]):
                 slack_message_ts=msg["ts"],
             )
             logger.info(f"Persisted {audience} note for release {release.id}")
-
     logger.info(f"Batch complete for {repo}")
 
 

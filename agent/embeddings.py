@@ -4,7 +4,7 @@ import voyageai
 
 logger = logging.getLogger(__name__)
 
-voyage_client = voyageai.AsyncClient(api_key=os.environ.get("VOYAGE_APY_KEY"))
+voyage_client = voyageai.AsyncClient(api_key=os.environ.get("VOYAGE_API_KEY"))
 
 def build_pr_summary_text(pr_number: int, pr_title: str, details_text: str, diff_text: str ) -> str:
     """Build the text representation of a PR used for embedding.
