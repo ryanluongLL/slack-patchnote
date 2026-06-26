@@ -35,7 +35,7 @@ async def process_batch(repo: str, jobs: list[dict]):
     from agent.generate import get_budget_status, generate_release_notes
     from agent.embeddings import build_pr_summary_text, embed_pr_summary
     from db.database import AsyncSessionLocal, init_db
-    from db.crud import create_release, create_release_note, create_pr_embedding
+    from db.crud import create_release, create_release_note, create_pr_embedding, update_note_slack_ref
     from db.models import AudienceType
 
     await init_db()
@@ -94,6 +94,7 @@ async def process_batch(repo: str, jobs: list[dict]):
                     embedding=embedding,
                 )
             logger.info(f"Embedded PR #{pr['pr_number']} for release {release.id}")
+            await asyncio.sleep(21)
         except Exception as e:
             logger.exception(f"Failed to embed PR #{pr['pr_number']}: {e}")
             embedding_list.append(None)
@@ -132,25 +133,62 @@ async def process_batch(repo: str, jobs: list[dict]):
             raw_data=generation_text,
             audience_prompt=system_prompt,
             repo=repo,
-            audience=audience
+            audience=audience,
         )
 
-        msg = await slack_client.chat_postMessage(
-            channel=channel,
-            text=f"{emoji} *PatchNote for {repo}*\n\n{response_text}",
-        )
-
+        #create the note row first so we have an ID to embed in the buttons
         async with AsyncSessionLocal() as session:
-            await create_release_note(
+            note = await create_release_note(
                 session=session,
                 release_id=release.id,
                 audience=AudienceType(audience),
                 content=response_text,
+            )
+
+        #post to Slack with approve/reject buttons carrying the note ID
+        msg = await slack_client.chat_postMessage(
+            channel=channel,
+            text=f"{emoji} *PatchNote for {repo}*\n\n{response_text}",
+            blocks=[
+                {
+                    "type": "section",
+                    "text":{
+                        "type": "mrkdwn",
+                        "text": f"{emoji} *PatchNote for {repo}*\n\n{response_text}",
+                    },
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"feedback_{note.id}",
+                    "elements":[
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "✅ Approve"},
+                            "style": "primary",
+                            "action_id": "patchnote_approve",
+                            "value": str(note.id),
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "❌ Reject"},
+                            "style": "danger",
+                            "action_id": "patchnote_reject",
+                            "value": str(note.id),
+                        }
+                    ]
+                }
+            ]
+        )
+
+        #Attach the Slack message reference now that we have it
+        async with AsyncSessionLocal() as session:
+            await update_note_slack_ref(
+                session=session,
+                note_id=note.id,
                 slack_channel_id=channel,
                 slack_message_ts=msg["ts"],
             )
-            logger.info(f"Persisted {audience} note for release {release.id}")
-    logger.info(f"Batch complete for {repo}")
+            logger.info(f"Persisted {audience} note {note.id} for release {release.id}")
 
 
 async def process_repo(repo: str):

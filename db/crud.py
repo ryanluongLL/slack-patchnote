@@ -2,7 +2,6 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from db.models import Release, ReleaseNote, AudienceType, ApprovalStatus
 from db.models import Release, ReleaseNote, AudienceType, ApprovalStatus, PREmbedding
 
 async def create_release(
@@ -115,4 +114,22 @@ async def create_pr_embedding(
     await session.commit()
     await session.refresh(pr_embedding)
     return pr_embedding
+
+async def update_note_slack_ref(
+    session: AsyncSession,
+    note_id: uuid.UUID,
+    slack_channel_id: str,
+    slack_message_ts: str,
+) -> ReleaseNote | None:
+    """Attach the Slack message reference to a note after posting."""
+    result = await session.execute(
+        select(ReleaseNote).where(ReleaseNote.id == note_id)
+    )
+    note = result.scalar_one_or_none()
+    if note:
+        note.slack_channel_id = slack_channel_id
+        note.slack_message_ts = slack_message_ts
+        await session.commit()
+        await session.refresh(note)
+    return note
 
