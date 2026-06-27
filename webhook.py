@@ -118,3 +118,42 @@ async def github_webhook(
         "repo": repo,
         "pr_number": pr_number,
     }
+
+@app.get("/api/changelog/{owner}/{repo}")
+async def get_changelog(owner: str, repo: str):
+    """Public endpoint returning approved release notes for a repo, using the product-audience note as the default public-facing text."""
+    from db.database import AsyncSessionLocal, init_db
+    from sqlalchemy import select
+    from db.models import Release, ReleaseNote, AudienceType, ApprovalStatus
+
+    await init_db()
+
+    full_repo = f"{owner}/{repo}"
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Release)
+            .where(Release.repo == full_repo)
+            .order_by(Release.created_at.desc())
+            .limit(50)
+        )
+        releases = result.scalars().all()
+
+        entries = []
+        for release in releases:
+            note_result = await session.execute(
+                select(ReleaseNote)
+                .where(ReleaseNote.release_id == release.id)
+                .where(ReleaseNote.audience == AudienceType.product)
+                .where(ReleaseNote.status == ApprovalStatus.approved)
+            )
+            note = note_result.scalar_one_or_none()
+
+            if note:
+                entries.append({
+                    "release_id": str(release.id),
+                    "date": release.created_at.isoformat(),
+                    "pr_count": len(release.pr_numbers.split(",")),
+                    "content": note.content,
+                })
+    return {"repo": full_repo, "entries": entries}
