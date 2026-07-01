@@ -13,13 +13,11 @@ export type ChangelogResponse = {
   entries: ChangelogEntry[];
 };
 
-export async function getChangelog(
-  owner: string,
-  repo: string
-): Promise<ChangelogResponse | null> {
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+export async function getAggregatedChangelog(): Promise<ChangelogResponse | null> {
+  const backend =
+    process.env.PATCHNOTE_BACKEND_URL ?? "https://slack-patchnote.onrender.com";
 
-  const res = await fetch(`${base}/api/changelog/${owner}/${repo}`, {
+  const res = await fetch(`${backend}/api/changelog/feed`, {
     next: { revalidate: 300 },
   });
 
@@ -27,12 +25,17 @@ export async function getChangelog(
   return res.json();
 }
 
-export async function getAggregatedChangelog(): Promise<ChangelogResponse | null>{
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+export async function getChangelog(
+  owner: string,
+  repo: string
+): Promise<ChangelogResponse | null> {
+  const backend =
+    process.env.PATCHNOTE_BACKEND_URL ?? "https://slack-patchnote.onrender.com";
 
-  const res = await fetch(`${base}/api/changelog/feed`, {
+  const res = await fetch(`${backend}/api/changelog/${owner}/${repo}`, {
     next: { revalidate: 300 },
   });
+
   if (!res.ok) return null;
   return res.json();
 }
