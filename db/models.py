@@ -89,3 +89,19 @@ class PREmbedding(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
+
+class TrackedRepo(Base):
+    """Registry of repos included in the aggregated public changelog feed.
+    Adding a repo here is the only step needed to include it on the homepage aside from setting up its GitHub webhook.
+    """
+    __tablename__ = "tracked_repos"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    repo: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )

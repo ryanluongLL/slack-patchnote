@@ -157,3 +157,48 @@ async def get_changelog(owner: str, repo: str):
                     "content": note.content,
                 })
     return {"repo": full_repo, "entries": entries}
+
+@app.get("/api/changelog/feed")
+async def get_aggregated_changelog():
+    """Public endpoint returning approved release notes across every repo registered in TrackedRepo, sorted newest first, which each entry labeled by its source project."""
+    from db.database import AsyncSessionLocal, init_db
+    from sqlalchemy import select
+    from db.models import Release, ReleaseNote, AudienceType, ApprovalStatus, TrackedRepo
+
+    await init_db()
+
+    async with AsyncSessionLocal() as session:
+        tracked_result = await session.execute(select(TrackedRepo))
+        tracked_repos = tracked_result.scalars().all()
+
+        entries = []
+        for tracked in tracked_repos:
+            release_result = await session.execute(
+                select(Release)
+                .where(Release.repo == tracked.repo)
+                .order_by(Release.created_at.desc())
+                .limit(50)
+            )
+            releases = release_result.scalars().all()
+
+            for release in releases:
+                note_result = await session.execute(
+                    select(ReleaseNote)
+                    .where(ReleaseNote.release_id == release.id)
+                    .where(ReleaseNote.audience == AudienceType.product)
+                    .where(ReleaseNote.status == ApprovalStatus.approved)
+                )
+                note = note_result.scalar_one_or_none()
+
+                if note:
+                    entries.append({
+                        "release_id": str(release.id),
+                        "repo": release.repo,
+                        "display_name": tracked.display_name,
+                        "date": release.created_at.isoformat(),
+                        "pr_count": len(release.pr_numbers.split(",")),
+                        "content": note.content,
+                    })
+        entries.sort(key=lambda e: e["date"], reverse=True)
+    
+    return{"entries": entries}

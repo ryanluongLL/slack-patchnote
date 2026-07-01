@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from db.models import Release, ReleaseNote, AudienceType, ApprovalStatus, PREmbedding
+from db.models import Release, ReleaseNote, AudienceType, ApprovalStatus, PREmbedding, TrackedRepo
 
 async def create_release(
     session: AsyncSession,
@@ -133,3 +133,19 @@ async def update_note_slack_ref(
         await session.refresh(note)
     return note
 
+async def add_tracked_repo(
+    session: AsyncSession,
+    repo: str,
+    display_name: str,
+) -> TrackedRepo:
+    """Register a repo to appear in the aggregated public changelog feed."""
+    tracked = TrackedRepo(repo=repo, display_name=display_name)
+    session.add(tracked)
+    await session.commit()
+    await session.refresh(tracked)
+    return tracked
+
+async def get_tracked_repos(session: AsyncSession) -> list[TrackedRepo]:
+    """Fetch all repos registered for the aggregated public feed."""
+    result = await session.execute(select(TrackedRepo))
+    return list(result.scalars().all())
